@@ -203,6 +203,7 @@ void sdrwr(char *startaddr)
 #else
 #define ERR_DDRPHY_DELAY 32
 #endif
+#define ERR_DDRPHY_BITSLIP 8
 
 #ifdef CSR_DDRPHY_WLEVEL_EN_ADDR
 
@@ -222,19 +223,46 @@ void sdrwloff(void)
 	ddrphy_wlevel_en_write(0);
 }
 
-static int write_level(int *delay, int *high_skew)
+static void write_level_scan(void)
 {
 	int i, j;
+	int dq_address;
+	unsigned char dq;
+
+	printf("Write leveling scan:\n");
+
+	sdrwlon();
+	cdelay(100);
+	for(i=0;i<DFII_PIX_DATA_SIZE/2;i++) {
+		printf("m%d: ", i);
+	    dq_address = sdram_dfii_pix_rddata_addr[0]+4*(DFII_PIX_DATA_SIZE/2-1-i);
+		ddrphy_dly_sel_write(1 << i);
+		ddrphy_wdly_dq_rst_write(1);
+		ddrphy_wdly_dqs_rst_write(1);
+		for(j=0;j<ERR_DDRPHY_DELAY - ddrphy_half_sys8x_taps_read();j++) {
+			ddrphy_wlevel_strobe_write(1);
+			cdelay(10);
+			dq = MMPTR(dq_address);
+			printf("%d", dq != 0);
+			ddrphy_wdly_dq_inc_write(1);
+			ddrphy_wdly_dqs_inc_write(1);
+			cdelay(10);
+		}
+		printf("\n");
+	}
+	sdrwloff();
+}
+
+static int write_level(int *delay, int *high_skew)
+{
+	int i;
 	int dq_address;
 	unsigned char dq;
 	int err_ddrphy_wdly;
 	int ok;
 
-	err_ddrphy_wdly = ERR_DDRPHY_DELAY;
-#ifdef CSR_DDRPHY_WDLY_DQS_TAPS_ADDR
-	printf("Write leveling dqs taps offset: %d\n", ddrphy_wdly_dqs_taps_read());
-	err_ddrphy_wdly = ERR_DDRPHY_DELAY - ddrphy_wdly_dqs_taps_read();
-#endif
+	err_ddrphy_wdly = ERR_DDRPHY_DELAY - ddrphy_half_sys8x_taps_read();
+
 	printf("Write leveling: ");
 
 	sdrwlon();
@@ -244,7 +272,8 @@ static int write_level(int *delay, int *high_skew)
 		ddrphy_dly_sel_write(1 << i);
 		ddrphy_wdly_dq_rst_write(1);
 		ddrphy_wdly_dqs_rst_write(1);
-#ifdef CSR_DDRPHY_WDLY_DQS_TAPS_ADDR
+#ifdef KUSDDRPHY /* Need to init manually on Ultrascale */
+		int j;
 		for(j=0; j<ddrphy_wdly_dqs_taps_read(); j++)
 			ddrphy_wdly_dqs_inc_write(1);
 #endif
@@ -259,6 +288,7 @@ static int write_level(int *delay, int *high_skew)
 			 * Assume this DQ group has between 1 and 2 bit times of skew.
 			 * Bring DQS into the CK=0 zone before continuing leveling.
 			 */
+#ifndef DDRPHY_HIGH_SKEW_DISABLE
 			high_skew[i] = 1;
 			while(dq != 0) {
 				delay[i]++;
@@ -270,6 +300,9 @@ static int write_level(int *delay, int *high_skew)
 				cdelay(10);
 				dq = MMPTR(dq_address);
 			 }
+#else
+			high_skew[i] = 0;
+#endif
 		} else
 			high_skew[i] = 0;
 
@@ -304,6 +337,19 @@ static int write_level(int *delay, int *high_skew)
 
 #endif /* CSR_DDRPHY_WLEVEL_EN_ADDR */
 
+static void read_bitslip_inc(char m)
+{
+		ddrphy_dly_sel_write(1 << m);
+#ifdef KUSDDRPHY
+		ddrphy_rdly_dq_bitslip_write(1);
+#else
+		/* 7-series SERDES in DDR mode needs 3 pulses for 1 bitslip */
+		ddrphy_rdly_dq_bitslip_write(1);
+		ddrphy_rdly_dq_bitslip_write(1);
+		ddrphy_rdly_dq_bitslip_write(1);
+#endif
+}
+
 static void read_bitslip(int *delay, int *high_skew)
 {
 	int bitslip_thr;
@@ -320,21 +366,91 @@ static void read_bitslip(int *delay, int *high_skew)
 	printf("Read bitslip: ");
 	for(i=DFII_PIX_DATA_SIZE/2-1;i>=0;i--)
 		if(delay[i] > bitslip_thr) {
-			ddrphy_dly_sel_write(1 << i);
-#ifdef KUSDDRPHY
-			ddrphy_rdly_dq_bitslip_write(1);
-#else
-			/* 7-series SERDES in DDR mode needs 3 pulses for 1 bitslip */
-			ddrphy_rdly_dq_bitslip_write(1);
-			ddrphy_rdly_dq_bitslip_write(1);
-			ddrphy_rdly_dq_bitslip_write(1);
-#endif
+			read_bitslip_inc(i);
 			printf("%d ", i);
 		}
 	printf("\n");
 }
 
-static void read_delays(void)
+static int read_level_scan(int silent)
+{
+	unsigned int prv;
+	unsigned char prs[DFII_NPHASES*DFII_PIX_DATA_SIZE];
+	int p, i, j;
+	int working;
+	int working_delays;
+	int optimal;
+
+	if (!silent)
+		printf("Read delays scan:\n");
+
+	/* Generate pseudo-random sequence */
+	prv = 42;
+	for(i=0;i<DFII_NPHASES*DFII_PIX_DATA_SIZE;i++) {
+		prv = 1664525*prv + 1013904223;
+		prs[i] = prv;
+	}
+
+	/* Activate */
+	sdram_dfii_pi0_address_write(0);
+	sdram_dfii_pi0_baddress_write(0);
+	command_p0(DFII_COMMAND_RAS|DFII_COMMAND_CS);
+	cdelay(15);
+
+	/* Write test pattern */
+	for(p=0;p<DFII_NPHASES;p++)
+		for(i=0;i<DFII_PIX_DATA_SIZE;i++)
+			MMPTR(sdram_dfii_pix_wrdata_addr[p]+4*i) = prs[DFII_PIX_DATA_SIZE*p+i];
+	sdram_dfii_piwr_address_write(0);
+	sdram_dfii_piwr_baddress_write(0);
+	command_pwr(DFII_COMMAND_CAS|DFII_COMMAND_WE|DFII_COMMAND_CS|DFII_COMMAND_WRDATA);
+
+	/* Calibrate each DQ in turn */
+	sdram_dfii_pird_address_write(0);
+	sdram_dfii_pird_baddress_write(0);
+	working = 0;
+	working_delays = 0;
+	optimal = 1;
+	for(i=DFII_PIX_DATA_SIZE/2-1;i>=0;i--) {
+		if (!silent)
+			printf("m%d: ", (DFII_PIX_DATA_SIZE/2-i-1));
+		ddrphy_dly_sel_write(1 << (DFII_PIX_DATA_SIZE/2-i-1));
+		ddrphy_rdly_dq_rst_write(1);
+		for(j=0; j<ERR_DDRPHY_DELAY;j++) {
+			int working_delay;
+			command_prd(DFII_COMMAND_CAS|DFII_COMMAND_CS|DFII_COMMAND_RDDATA);
+			cdelay(15);
+			working_delay = 1;
+			for(p=0;p<DFII_NPHASES;p++) {
+				if(MMPTR(sdram_dfii_pix_rddata_addr[p]+4*i) != prs[DFII_PIX_DATA_SIZE*p+i])
+					working_delay = 0;
+				if(MMPTR(sdram_dfii_pix_rddata_addr[p]+4*(i+DFII_PIX_DATA_SIZE/2)) != prs[DFII_PIX_DATA_SIZE*p+i+DFII_PIX_DATA_SIZE/2])
+					working_delay = 0;
+			}
+			working |= working_delay;
+			working_delays += working_delay;
+			if ((j == 0) || (j == (ERR_DDRPHY_DELAY-1)))
+				/* to have an optimal scan, first tap and last tap should not be working */
+				optimal &= (working_delay == 0);
+			if (!silent)
+				printf("%d", working_delay);
+			ddrphy_rdly_dq_inc_write(1);
+		}
+		if (!silent)
+			printf("\n");
+	}
+
+	/* Precharge */
+	sdram_dfii_pi0_address_write(0);
+	sdram_dfii_pi0_baddress_write(0);
+	command_p0(DFII_COMMAND_RAS|DFII_COMMAND_WE|DFII_COMMAND_CS);
+	cdelay(15);
+
+	/* Successful if working and optimal or if number of working delays > 3/4 of the taps */
+	return (working & optimal) | (working_delays > 3*ERR_DDRPHY_DELAY/4);
+}
+
+static void read_level(void)
 {
 	unsigned int prv;
 	unsigned char prs[DFII_NPHASES*DFII_PIX_DATA_SIZE];
@@ -610,53 +726,46 @@ int memtest(void)
 }
 
 #ifdef CSR_DDRPHY_BASE
-#ifdef READ_LEVELING_BITSLIP
-int sdrlevel(void) /* manual */
-{
-	int bitslip, delay, module;
-	int i;
-	sdram_dfii_control_write(DFII_CONTROL_SEL);
-	for(module=0; module<8; module++) {
-		ddrphy_dly_sel_write(1<<module);
-		ddrphy_rdly_dq_rst_write(1);
-	    /* configure bitslip */
-#ifdef KUSDDRPHY
-			ddrphy_rdly_dq_bitslip_write(1);
-#else
-		for(bitslip=0; bitslip<READ_LEVELING_BITSLIP; bitslip++) {
-			// 7-series SERDES in DDR mode needs 3 pulses for 1 bitslip
-			for(i=0; i<3; i++)
-				ddrphy_rdly_dq_bitslip_write(1);
-		}
-#endif
-		/* configure delay */
-		for(delay=0; delay<READ_LEVELING_DELAY; delay++)
-			ddrphy_rdly_dq_inc_write(1);
-	}
-	return 1;
-}
-#else
-int sdrlevel(void) /* automatic */
+int sdrlevel(void)
 {
 	int delay[DFII_PIX_DATA_SIZE/2];
 	int high_skew[DFII_PIX_DATA_SIZE/2];
+	int i, j;
+
+	for(i=0; i<DFII_PIX_DATA_SIZE/2; i++) {
+		ddrphy_dly_sel_write(1<<i);
+		ddrphy_rdly_dq_rst_write(1);
+		ddrphy_rdly_dq_bitslip_rst_write(1);
+	}
 
 #ifndef CSR_DDRPHY_WLEVEL_EN_ADDR
-	int i;
 	for(i=0; i<DFII_PIX_DATA_SIZE/2; i++) {
 		delay[i] = 0;
 		high_skew[i] = 0;
 	}
 #else
+	write_level_scan();
 	if(!write_level(delay, high_skew))
 		return 0;
 #endif
-	read_bitslip(delay, high_skew);
-	read_delays();
+	/* check for optimal read leveling window */
+	for(i=0; i<ERR_DDRPHY_BITSLIP; i++) {
+		/* scan */
+		if (read_level_scan(1))
+			break;
+		if (i == ERR_DDRPHY_BITSLIP-1)
+			return 0;
+		/* increment bitslip */
+		for(j=0; j<DFII_PIX_DATA_SIZE/2; j++)
+			read_bitslip_inc(j);
+	}
+	/* show bitslip and scan */
+	printf("Read bitslip: %d\n", i);
+    read_level_scan(0);
+	read_level();
 
 	return 1;
 }
-#endif
 #endif
 
 int sdrinit(void)

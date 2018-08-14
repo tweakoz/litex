@@ -7,6 +7,7 @@ from litex.soc.interconnect import wishbone
 
 class PicoRV32(Module):
     def __init__(self, platform, progaddr_reset, variant):
+        self.reset = Signal()
         self.ibus = i = wishbone.Interface()
         self.dbus = d = wishbone.Interface()
         self.interrupt = Signal(32)
@@ -50,7 +51,7 @@ class PicoRV32(Module):
 
             # clock / reset
             i_clk=ClockSignal(),
-            i_resetn=~ResetSignal(),
+            i_resetn=~(ResetSignal() | self.reset),
 
             # trap
             o_trap=self.trap,
@@ -118,6 +119,10 @@ class PicoRV32(Module):
         ]
 
         # add verilog sources
+        self.add_sources(platform)
+
+    @staticmethod
+    def add_sources(platform):
         vdir = os.path.join(
             os.path.abspath(os.path.dirname(__file__)), "verilog")
         platform.add_source(os.path.join(vdir, "picorv32.v"))

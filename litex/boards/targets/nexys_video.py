@@ -12,7 +12,7 @@ from litex.soc.integration.soc_sdram import *
 from litex.soc.integration.builder import *
 
 from litedram.modules import MT41K256M16
-from litedram.phy import a7ddrphy
+from litedram.phy import s7ddrphy
 
 from liteeth.phy.s7rgmii import LiteEthPHYRGMII
 from liteeth.core.mac import LiteEthMAC
@@ -96,9 +96,7 @@ class BaseSoC(SoCSDRAM):
         self.submodules.crg = _CRG(platform)
 
         # sdram
-        self.submodules.ddrphy = a7ddrphy.A7DDRPHY(platform.request("ddram"))
-        self.add_constant("READ_LEVELING_BITSLIP", 3)
-        self.add_constant("READ_LEVELING_DELAY", 14)
+        self.submodules.ddrphy = s7ddrphy.A7DDRPHY(platform.request("ddram"))
         sdram_module = MT41K256M16(self.clk_freq, "1:4")
         self.register_sdram(self.ddrphy,
                             sdram_module.geom_settings,
