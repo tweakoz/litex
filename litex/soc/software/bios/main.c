@@ -367,10 +367,10 @@ static void boot_sequence(void)
 {
 	if(serialboot()) {
 #ifdef FLASH_BOOT_ADDRESS
-		flashboot();
+		//flashboot();
 #endif
 #ifdef ROM_BOOT_ADDRESS
-		romboot();
+		//romboot();
 #endif
 #ifdef CSR_ETHMAC_BASE
 #ifdef CSR_ETHPHY_MODE_DETECTION_MODE_ADDR
@@ -452,7 +452,8 @@ int main(int i, char **c)
 	if(sdr_ok) {
 		printf("--========== \e[1mBoot sequence\e[0m =============--\n");
 		boot_sequence();
-		printf("\n");
+		//
+		//printf("skipped, yo..\n");
 	}
 
 	printf("--============= \e[1mConsole\e[0m ================--\n");

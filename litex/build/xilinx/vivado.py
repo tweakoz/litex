@@ -13,7 +13,6 @@ from litex.build.generic_platform import *
 from litex.build import tools
 from litex.build.xilinx import common
 
-
 def _format_constraint(c):
     if isinstance(c, Pins):
         return "set_property LOC " + c.identifiers[0]

@@ -17,7 +17,10 @@
 #include "sfl.h"
 #include "boot.h"
 
-extern void boot_helper(unsigned long r1, unsigned long r2, unsigned long r3, unsigned long addr);
+extern void boot_helper( unsigned long r1,
+	                       unsigned long r2,
+												 unsigned long r3,
+												 unsigned long addr );
 
 static void __attribute__((noreturn)) boot(unsigned long r1, unsigned long r2, unsigned long r3, unsigned long addr)
 {
@@ -204,12 +207,13 @@ static int tftp_get_v(unsigned int ip, unsigned short server_port,
 const char *filename, char *buffer)
 {
 	int r;
+	printf( "fetching file<%s> to addr<0x%p> from remote<%d.%d.%d.%d>.tftp\n",filename,buffer,REMOTEIP1,REMOTEIP2,REMOTEIP3,REMOTEIP4);
 
 	r = tftp_get(ip, server_port, filename, buffer);
 	if(r > 0)
-		printf("Successfully downloaded %d bytes from %s over TFTP\n", r, filename);
+		printf("   Successfully downloaded %d bytes from %s over TFTP\n", r, filename);
 	else
-		printf("Unable to download %s over TFTP\n", filename);
+		printf("   !!! Unable to download %s over TFTP\n", filename);
 	return r;
 }
 
@@ -241,7 +245,7 @@ void netboot(void)
 		return;
 	}
 
-	tftp_dst_addr = MAIN_RAM_BASE + 0x00800000;
+	tftp_dst_addr = MAIN_RAM_BASE + 0x00480000;
 	size = tftp_get_v(ip, tftp_port, "rootfs.cpio", (void *)tftp_dst_addr);
 	if(size <= 0) {
 		printf("No rootfs.cpio found\n");
@@ -285,10 +289,10 @@ void netboot(void)
 void flashboot(void)
 {
 	printf("Loading Image from flash...\n");
-	memcpy((void *)MAIN_RAM_BASE + 0x00000000, (void *)0x50400000, 0x400000);
+	memcpy((void *)MAIN_RAM_BASE + 0x00000000, (void *)0x50400000, 0x480000);
 
 	printf("Loading rootfs.cpio from flash...\n");
-	memcpy((void *)MAIN_RAM_BASE + 0x00800000, (void *)0x50800000, 0x700000);
+	memcpy((void *)MAIN_RAM_BASE + 0x00880000, (void *)0x50880000, 0x680000);
 
 	printf("Loading rv32.dtb from flash...\n");
 	memcpy((void *)MAIN_RAM_BASE + 0x01000000, (void *)0x50f00000, 0x001000);
