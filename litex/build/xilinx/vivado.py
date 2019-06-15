@@ -12,6 +12,7 @@ from migen.fhdl.structure import _Fragment
 from litex.build.generic_platform import *
 from litex.build import tools
 from litex.build.xilinx import common
+import litex.utils.path as lxpath
 
 def _format_constraint(c):
     if isinstance(c, Pins):
@@ -109,6 +110,12 @@ class XilinxVivadoToolchain:
         self.false_paths = set()
 
     def _build_batch(self, platform, sources, edifs, ips, build_name, synth_mode, enable_xpm):
+
+        import shutil
+        shutil.copyfile(lxpath.module_xilinx_dir()/"write_mmi.tcl",
+                         )
+
+
         assert synth_mode in ["vivado", "yosys"]
         tcl = []
         tcl.append("create_project -force -name {} -part {}".format(build_name, platform.device))
@@ -225,6 +232,7 @@ class XilinxVivadoToolchain:
             toolchain_path = "/opt/Xilinx/Vivado"
         os.makedirs(build_dir, exist_ok=True)
         cwd = os.getcwd()
+        os.environ["LITEX_BUILD_DIR"]=lxpath.wrap(build_dir)
         os.chdir(build_dir)
 
         if not isinstance(fragment, _Fragment):
