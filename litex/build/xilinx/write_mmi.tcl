@@ -16,7 +16,7 @@ proc write_mmi {cell_name filename} {
 			lappend cell_name_bram [lindex $brams $i]
 		}
 	}
-	set proc_found 0	
+	set proc_found 0
 	set inst_path [split [get_cells -hierarchical -filter { NAME =~  "*microblaze*" } ] " "]
 	if {$inst_path == ""} {
 		puts "Warning: No Processor found"
@@ -25,7 +25,7 @@ proc write_mmi {cell_name filename} {
 		set proc_found 1
 		set inst_path [lindex $inst_path 0]
 	}
-		
+
 	puts $fileout "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
 	puts $fileout "<MemInfo Version=\"1\" Minor=\"0\">"
 	set inst_temp [lindex $brams 0]
@@ -38,7 +38,7 @@ proc write_mmi {cell_name filename} {
 	for {set i 0} {$i < [llength $cell_name_bram]} {incr i} {
 		set bram_type [get_property REF_NAME [get_cells [lindex $cell_name_bram $i]]]
 		if {$bram_type == "RAMB36E1"} {
-			set bram_range [expr {$bram_range + 4096}]	
+			set bram_range [expr {$bram_range + 4096}]
 		}
 	}
 	puts $fileout "  <AddressSpace Name=\"$cell_name\" Begin=\"0\" End=\"[expr {$bram_range - 1}]\">"
@@ -61,8 +61,8 @@ proc write_mmi {cell_name filename} {
 		set bus_blocks 1
 	}
 	set sequence [split $sequence ","]
-	
-	
+
+
 	for {set b 0} {$b < $bus_blocks} {incr b} {
 		puts $fileout "      <BusBlock>"
 		for {set i 0} {$i < [llength $sequence]} {incr i} {
@@ -78,7 +78,7 @@ proc write_mmi {cell_name filename} {
 				if {$MSB == $bmm_msb && $block_start == [lindex $split_ranges 0]} {
 					set bram_type [get_property REF_NAME [get_cells [lindex $cell_name_bram $j]]]
 					set status [get_property STATUS [get_cells [lindex $cell_name_bram $j]]]
-																							
+
 					if {$status == "UNPLACED"} {
 						set placed "X0Y0"
 					} else {
@@ -86,11 +86,11 @@ proc write_mmi {cell_name filename} {
 						set placed_list [split $placed "_"]
 						set placed [lindex $placed_list 1]
 					}
-					set bram_type [get_property REF_NAME [get_cells [lindex $cell_name_bram $j]]]			
+					set bram_type [get_property REF_NAME [get_cells [lindex $cell_name_bram $j]]]
 					if {$bram_type == "RAMB36E1"} {
 						set bram_type "RAMB32"
 					}
-															
+
 					puts $fileout "        <BitLane MemType=\"$bram_type\" Placement=\"$placed\">"
 					puts $fileout "          <DataWidth MSB=\"$bmm_msb\" LSB=\"$bmm_lsb\"/>"
 					puts $fileout "          <AddressRange Begin=\"[lindex $split_ranges 0]\" End=\"[lindex $split_ranges 1]\"/>"
@@ -116,6 +116,8 @@ proc write_mmi {cell_name filename} {
 proc bram_info {bram type} {
 	set temp [get_property bmm_info_memory_device [get_cells $bram]]
 	set bmm_info_memory_device [regexp {\[(.+)\]\[(.+)\]} $temp all 1 2]
+	puts "bram: '$bram'"
+	puts "type: '$type'"
 	if {$type == "bit_lane"} {
 		return $1
 	} elseif {$type == "range"} {

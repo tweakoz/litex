@@ -363,25 +363,6 @@ static void readstr(char *s, int size)
 	}
 }
 
-static void boot_sequence(void)
-{
-	if(serialboot()) {
-#ifdef FLASH_BOOT_ADDRESS
-		//flashboot();
-#endif
-#ifdef ROM_BOOT_ADDRESS
-		//romboot();
-#endif
-#ifdef CSR_ETHMAC_BASE
-#ifdef CSR_ETHPHY_MODE_DETECTION_MODE_ADDR
-		eth_mode();
-#endif
-		netboot();
-#endif
-		printf("No boot medium found\n");
-	}
-}
-
 int main(int i, char **c)
 {
 	char buffer[64];
@@ -451,7 +432,6 @@ int main(int i, char **c)
 
 	if(sdr_ok) {
 		printf("--========== \e[1mBoot sequence\e[0m =============--\n");
-		boot_sequence();
 		//
 		//printf("skipped, yo..\n");
 	}

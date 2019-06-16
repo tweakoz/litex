@@ -7,6 +7,7 @@ from litex.build.tools import write_to_file
 from litex.soc.integration import cpu_interface, soc_core, soc_sdram
 
 from litedram import sdram_init
+import litex.utils.path as lxpath
 
 __all__ = ["soc_software_packages", "soc_directory",
            "Builder", "builder_args", "builder_argdict"]
@@ -20,11 +21,10 @@ soc_software_packages = [
 ]
 
 
-soc_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
+soc_directory = lxpath.module_soc_dir().resolve()
 
 def _makefile_escape(s):
-    return s.replace("\\", "\\\\")
+    return str(s).replace("\\", "\\\\")
 
 
 class Builder:
@@ -39,7 +39,7 @@ class Builder:
                 soc.platform.name)
         # From Python doc: makedirs() will become confused if the path
         # elements to create include '..'
-        self.output_dir = os.path.abspath(output_dir)
+        self.output_dir = lxpath.wrap(output_dir).resolve()
         self.compile_software = compile_software
         self.compile_gateware = compile_gateware
         self.gateware_toolchain_path = gateware_toolchain_path
@@ -51,7 +51,7 @@ class Builder:
 
     def add_software_package(self, name, src_dir=None):
         if src_dir is None:
-            src_dir = os.path.join(soc_directory, "software", name)
+            src_dir = soc_directory/"software"/name
         self.software_packages.append((name, src_dir))
 
     def _generate_includes(self):
@@ -62,8 +62,8 @@ class Builder:
         csr_regions = self.soc.get_csr_regions()
         constants = self.soc.get_constants()
 
-        buildinc_dir = os.path.join(self.output_dir, "software", "include")
-        generated_dir = os.path.join(buildinc_dir, "generated")
+        buildinc_dir = self.output_dir/"software"/"include"
+        generated_dir = buildinc_dir/"generated"
         os.makedirs(generated_dir, exist_ok=True)
 
         variables_contents = []
@@ -91,27 +91,27 @@ class Builder:
         for name, src_dir in self.software_packages:
             define(name.upper() + "_DIRECTORY", src_dir)
         write_to_file(
-            os.path.join(generated_dir, "variables.mak"),
+            generated_dir/"variables.mak",
             "".join(variables_contents))
 
         write_to_file(
-            os.path.join(generated_dir, "output_format.ld"),
+            generated_dir/"output_format.ld",
             cpu_interface.get_linker_output_format(self.soc.cpu))
         write_to_file(
-            os.path.join(generated_dir, "regions.ld"),
+            generated_dir/"regions.ld",
             cpu_interface.get_linker_regions(memory_regions))
 
         write_to_file(
-            os.path.join(generated_dir, "mem.h"),
+            generated_dir/"mem.h",
             cpu_interface.get_mem_header(memory_regions, flash_boot_address, shadow_base))
         write_to_file(
-            os.path.join(generated_dir, "csr.h"),
+            generated_dir/"csr.h",
             cpu_interface.get_csr_header(csr_regions, constants))
 
         if isinstance(self.soc, soc_sdram.SoCSDRAM):
             if hasattr(self.soc, "sdram"):
                 write_to_file(
-                    os.path.join(generated_dir, "sdram_phy.h"),
+                    generated_dir/"sdram_phy.h",
                     sdram_init.get_sdram_phy_c_header(
                         self.soc.sdram.controller.settings.phy,
                         self.soc.sdram.controller.settings.timing))
@@ -137,7 +137,7 @@ class Builder:
 
     def _prepare_software(self):
         for name, src_dir in self.software_packages:
-            dst_dir = os.path.join(self.output_dir, "software", name)
+            dst_dir = self.output_dir/"software"/name
             os.makedirs(dst_dir, exist_ok=True)
 
     def _generate_software(self, compile_bios=True):
@@ -145,13 +145,13 @@ class Builder:
             if name == "bios" and not compile_bios:
                 pass
             else:
-                dst_dir = os.path.join(self.output_dir, "software", name)
-                makefile = os.path.join(src_dir, "Makefile")
+                dst_dir = self.output_dir/"software"/name
+                makefile = lxpath.wrap(src_dir)/"Makefile"
                 if self.compile_software:
                     subprocess.check_call(["make", "-C", dst_dir, "-f", makefile])
 
     def _initialize_rom(self):
-        bios_file = os.path.join(self.output_dir, "software", "bios","bios.bin")
+        bios_file = self.output_dir/"software"/"bios"/"bios.bin"
         bios_data = soc_core.get_mem_data(bios_file, self.soc.cpu.endianness)
         self.soc.initialize_rom(bios_data)
 
@@ -176,7 +176,7 @@ class Builder:
 
         if "run" not in kwargs:
             kwargs["run"] = self.compile_gateware
-        vns = self.soc.build(build_dir=os.path.join(self.output_dir, "gateware"),
+        vns = self.soc.build(build_dir=self.output_dir/"gateware",
                              toolchain_path=toolchain_path, **kwargs)
         return vns
 

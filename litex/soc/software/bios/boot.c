@@ -5,9 +5,11 @@
 #include <crc.h>
 #include <string.h>
 #include <irq.h>
+#include <assert.h>
 
 #include <generated/mem.h>
 #include <generated/csr.h>
+#include <base/stdlib.h>
 
 #ifdef CSR_ETHMAC_BASE
 #include <net/microudp.h>
@@ -203,8 +205,11 @@ int serialboot(void)
 #define TFTP_SERVER_PORT DEFAULT_TFTP_SERVER_PORT
 #endif
 
-static int tftp_get_v(unsigned int ip, unsigned short server_port,
-const char *filename, char *buffer)
+static int tftp_get_v( unsigned int ip,
+	                     unsigned short server_port,
+                       const char *filename,
+											 char *buffer,
+										   size_t maxlen )
 {
 	int r;
 	printf( "fetching file<%s> to addr<0x%p> from remote<%d.%d.%d.%d>.tftp\n",filename,buffer,REMOTEIP1,REMOTEIP2,REMOTEIP3,REMOTEIP4);
@@ -219,8 +224,36 @@ const char *filename, char *buffer)
 
 static const unsigned char macadr[6] = {0x10, 0xe2, 0xd5, 0x00, 0x00, 0x00};
 
+static void _substring(const char* input_str, char* output_str, int length) {
+   int index = 0;
+   while( index<length) {
+      output_str[index] = input_str[index];
+      index++;
+   }
+	 output_str[index] = '\0';
+	 //printf( "_substring input_str<%s> length<%d> index<%d> output_str<%s>\n", input_str, length, index, output_str );
+}
+
+static size_t _tokenize( const char* inpstr, char* tokbuf, size_t buflen ){
+	size_t slen = strlen(inpstr);
+	char* brk = strpbrk(inpstr," \n");
+	size_t brklen = strspn(brk," \n");
+	size_t toklen = brk-inpstr;
+	assert((brklen+toklen)<buflen);
+	_substring( inpstr,tokbuf,toklen );
+	//printf( "token<%s> toklen<%zu> brklen<%zu> inpstr<%s> slen<%zu>\n", tokbuf, toklen, brklen, inpstr, slen );
+	return brklen+toklen;
+}
+
+#define kmaxtoklen 32
+struct token {
+	char _buffer[kmaxtoklen];
+};
+
 void netboot(void)
 {
+	//eth_mode();
+
 	int size;
 	unsigned int ip;
 	unsigned long tftp_dst_addr;
@@ -237,46 +270,81 @@ void netboot(void)
 	tftp_port = TFTP_SERVER_PORT;
 	printf("Fetching from: UDP/%d\n", tftp_port);
 
-#ifdef NETBOOT_LINUX_VEXRISCV
+	////////////////////////////////////////////////////
+	// parse manifest
+	////////////////////////////////////////////////////
+
+
 	tftp_dst_addr = MAIN_RAM_BASE;
-	size = tftp_get_v(ip, tftp_port, "Image", (void *)tftp_dst_addr);
-	if (size <= 0) {
-		printf("Network boot failed\n");
-		return;
+
+	int boot_phase = 0;
+	while(boot_phase==0){
+
+		char manifest_string[1024];
+		memset( manifest_string, 0, 1024 );
+
+		size = tftp_get_v(ip, tftp_port, "boot.manifest", (void *)manifest_string, 1024 );
+		if (size <= 0) {
+			printf("Network boot failed\n");
+			return;
+		}
+		else if (size > 1023) {
+			printf("Size too big!!!\n");
+			return;
+		}
+		else{
+			printf( "///////////////////////////////\n");
+			printf("got manifest size<%d>\n", (int) size );
+			printf("got manifest data<%s>\n", manifest_string);
+			/////////////////////////////////////////////////
+			int done = 0;
+			size_t tl = 0;
+			while(0==done){
+					struct token tok_command;
+					tl += _tokenize(manifest_string+tl,tok_command._buffer,kmaxtoklen);
+					if(0==strcmp("download",tok_command._buffer)){
+						struct token tok_filename;
+						struct token tok_addr;
+						struct token tok_len;
+						tl += _tokenize(manifest_string+tl,tok_filename._buffer,kmaxtoklen);
+						tl += _tokenize(manifest_string+tl,tok_addr._buffer,kmaxtoklen);
+						tl += _tokenize(manifest_string+tl,tok_len._buffer,kmaxtoklen);
+						uint32_t addr=strtoul(tok_addr._buffer,0,0);
+						size_t length=strtoul(tok_len._buffer,0,0);
+						printf( "got download command filename<%s> addr<%s:%08x> len<%s:%zu>\n", tok_filename._buffer,tok_addr._buffer,addr,tok_len._buffer, length );
+
+						int dl_done = 0;
+						while(0==dl_done){
+							size_t downloaded = tftp_get_v(ip, tftp_port, tok_filename._buffer, (void *) addr, length );
+							if (downloaded != length) {
+								printf("tftp download<%s> failed. expectedlen<%zu> got<%zu>\n", tok_filename._buffer,length,downloaded);
+							}
+							else {
+								printf("tftp download<%s> succeeded", tok_filename._buffer);
+								dl_done = 1;
+							}
+						}
+					}
+					else if(0==strcmp("boot",tok_command._buffer)){
+						struct token tok_addr;
+						tl += _tokenize(manifest_string+tl,tok_addr._buffer,kmaxtoklen);
+						uint32_t addr=strtoul(tok_addr._buffer,0,0);
+						printf( "got boot command addr<%s:%08x>\n", tok_addr._buffer,addr );
+						//boot(0, 0, 0, addr);
+					}
+					else if(0==strcmp("end",tok_command._buffer)){
+						done = 1;
+						boot_phase = 1;
+						printf( "got end command\n" );
+					}
+			}
+			printf( "DONE!!\n");
+			printf( "///////////////////////////////\n");
+			/////////////////////////////////////////////////
+		}
 	}
 
-	tftp_dst_addr = MAIN_RAM_BASE + 0x00480000;
-	size = tftp_get_v(ip, tftp_port, "rootfs.cpio", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No rootfs.cpio found\n");
-		return;
-	}
-
-	tftp_dst_addr = MAIN_RAM_BASE + 0x01000000;
-	size = tftp_get_v(ip, tftp_port, "rv32.dtb", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No rv32.dtb found\n");
-		return;
-	}
-
-	tftp_dst_addr = EMULATOR_RAM_BASE;
-	size = tftp_get_v(ip, tftp_port, "emulator.bin", (void *)tftp_dst_addr);
-	if(size <= 0) {
-		printf("No emulator.bin found\n");
-		return;
-	}
-
-	boot(0, 0, 0, EMULATOR_RAM_BASE);
-#else
-	tftp_dst_addr = MAIN_RAM_BASE;
-	size = tftp_get_v(ip, tftp_port, "boot.bin", (void *)tftp_dst_addr);
-	if (size <= 0) {
-		printf("Network boot failed\n");
-		return;
-	}
-
-	boot(0, 0, 0, MAIN_RAM_BASE);
-#endif
+	////////////////////////////////////////////////////
 
 }
 

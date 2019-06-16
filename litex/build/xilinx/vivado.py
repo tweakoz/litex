@@ -13,6 +13,7 @@ from litex.build.generic_platform import *
 from litex.build import tools
 from litex.build.xilinx import common
 import litex.utils.path as lxpath
+import litex.utils.env as lxenv
 
 def _format_constraint(c):
     if isinstance(c, Pins):
@@ -111,13 +112,14 @@ class XilinxVivadoToolchain:
 
     def _build_batch(self, platform, sources, edifs, ips, build_name, synth_mode, enable_xpm):
 
-        import shutil
-        shutil.copyfile(lxpath.module_xilinx_dir()/"write_mmi.tcl",
-                         )
-
+        lxpath.copyfile(lxpath.module_xilinx_dir()/"write_mmi.tcl",
+                        lxpath.output_build_dir()/"write_mmi.tcl")
 
         assert synth_mode in ["vivado", "yosys"]
         tcl = []
+
+        tcl.append("source write_mmi.tcl")
+
         tcl.append("create_project -force -name {} -part {}".format(build_name, platform.device))
         if enable_xpm:
             tcl.append("set_property XPM_LIBRARIES {XPM_CDC XPM_MEMORY} [current_project]")
@@ -179,8 +181,25 @@ class XilinxVivadoToolchain:
         for bitstream_command in self.bitstream_commands:
             tcl.append(bitstream_command.format(build_name=build_name))
         tcl.append("write_bitstream -force {}.bit ".format(build_name))
+        tcl.append("write_checkpoint -force {}.dcp ".format(build_name))
         for additional_command in self.additional_commands:
             tcl.append(additional_command.format(build_name=build_name))
+
+        ###############################
+        # todo I guess this should be run per enumerated initialized memory region
+        ###############################
+
+        print("PLATFORM<%s>"%str(platform))
+        print("PLATFORMDIR<%s>"%dir(platform))
+        #tcl.append("generate_one_bmm_file mem")
+        #tcl.append('write_mem_info top.mmi')
+
+        tcl.append('set bram_inst [get_cells -hierarchical -filter { PRIMITIVE_TYPE =~ BMEM.bram.* }]')
+        tcl.append('if {$bram_inst ne ""} {')
+        tcl.append('  write_mmi $bram_inst top.mmi')
+        tcl.append('}')
+        ###############################
+
         tcl.append("quit")
         tools.write_to_file(build_name + ".tcl", "\n".join(tcl))
 
@@ -232,8 +251,9 @@ class XilinxVivadoToolchain:
             toolchain_path = "/opt/Xilinx/Vivado"
         os.makedirs(build_dir, exist_ok=True)
         cwd = os.getcwd()
-        os.environ["LITEX_BUILD_DIR"]=lxpath.wrap(build_dir)
+        lxenv.set("LITEX_BUILD_DIR",lxpath.wrap(build_dir))
         os.chdir(build_dir)
+        print( "WHATUPYO")
 
         if not isinstance(fragment, _Fragment):
             fragment = fragment.get_fragment()
