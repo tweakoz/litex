@@ -200,25 +200,26 @@ int serialboot(void)
 #define REMOTEIP4 100
 #endif
 
-#define DEFAULT_TFTP_SERVER_PORT 69  /* IANA well known port: UDP/69 */
+#define DEFAULT_TFTP_SERVER_PORT 6069  /* IANA well known port: UDP/69 */
 #ifndef TFTP_SERVER_PORT
 #define TFTP_SERVER_PORT DEFAULT_TFTP_SERVER_PORT
 #endif
 
 static int tftp_get_v( unsigned int ip,
-	                     unsigned short server_port,
+	                   unsigned short server_port,
                        const char *filename,
-											 char *buffer,
-										   size_t maxlen )
+					   uint8_t* buffer,
+					   uint32_t expected_len )
 {
-	int r;
+	int r = 0;
 	printf( "fetching file<%s> to addr<0x%p> from remote<%d.%d.%d.%d>.tftp\n",filename,buffer,REMOTEIP1,REMOTEIP2,REMOTEIP3,REMOTEIP4);
 
-	r = tftp_get(ip, server_port, filename, buffer);
+	r = tftp_get(ip, server_port, filename, buffer, expected_len);
 	if(r > 0)
 		printf("   Successfully downloaded %d bytes from %s over TFTP\n", r, filename);
 	else
 		printf("   !!! Unable to download %s over TFTP\n", filename);
+
 	return r;
 }
 
@@ -283,7 +284,7 @@ void netboot(void)
 		char manifest_string[1024];
 		memset( manifest_string, 0, 1024 );
 
-		size = tftp_get_v(ip, tftp_port, "boot.manifest", (void *)manifest_string, 1024 );
+		size = tftp_get_v(ip, tftp_port, "boot.manifest", (uint8_t*) manifest_string, 0 );
 		if (size <= 0) {
 			printf("Network boot failed\n");
 			return;
@@ -309,15 +310,25 @@ void netboot(void)
 						tl += _tokenize(manifest_string+tl,tok_filename._buffer,kmaxtoklen);
 						tl += _tokenize(manifest_string+tl,tok_addr._buffer,kmaxtoklen);
 						tl += _tokenize(manifest_string+tl,tok_len._buffer,kmaxtoklen);
-						uint32_t addr=strtoul(tok_addr._buffer,0,0);
-						size_t length=strtoul(tok_len._buffer,0,0);
-						printf( "got download command filename<%s> addr<%s:%08x> len<%s:%zu>\n", tok_filename._buffer,tok_addr._buffer,addr,tok_len._buffer, length );
+						uint32_t addr = strtoul(tok_addr._buffer,0,0);
+						uint32_t length = strtoul(tok_len._buffer,0,0);
+						printf( "got download command filename<%s> addr<%s:%08x> len<%s:%d>\n", tok_filename._buffer,tok_addr._buffer,addr,tok_len._buffer, length );
 
 						int dl_done = 0;
 						while(0==dl_done){
-							size_t downloaded = tftp_get_v(ip, tftp_port, tok_filename._buffer, (void *) addr, length );
+							int downloaded = tftp_get_v(ip, tftp_port, tok_filename._buffer, (uint8_t*) addr, length );
 							if (downloaded != length) {
-								printf("tftp download<%s> failed. expectedlen<%zu> got<%zu>\n", tok_filename._buffer,length,downloaded);
+								printf("tftp download<%s> failed. expectedlen<%d> got<%d>\n", tok_filename._buffer,length,downloaded);
+                                //atftpd --no-timeout
+                    			//       --mcast-port 1758
+                    			//  		 --mcast-addr 239.239.239.0-255
+                    			//			 --mcast-ttl 1
+                    			//			 --maxthread 100
+                    			//			 --verbose=5
+                    			//  		 --no-fork
+                    			//			 --daemon
+                    			//			 --logfile tftp.log
+                    			//			 ./tftp_root
 							}
 							else {
 								printf("tftp download<%s> succeeded", tok_filename._buffer);
@@ -330,7 +341,7 @@ void netboot(void)
 						tl += _tokenize(manifest_string+tl,tok_addr._buffer,kmaxtoklen);
 						uint32_t addr=strtoul(tok_addr._buffer,0,0);
 						printf( "got boot command addr<%s:%08x>\n", tok_addr._buffer,addr );
-						//boot(0, 0, 0, addr);
+						boot(0, 0, 0, addr);
 					}
 					else if(0==strcmp("end",tok_command._buffer)){
 						done = 1;
