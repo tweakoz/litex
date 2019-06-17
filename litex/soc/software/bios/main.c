@@ -10,6 +10,7 @@
 
 #include <generated/csr.h>
 #include <generated/mem.h>
+#include <base/time.h>
 
 #ifdef CSR_ETHMAC_BASE
 #include <net/microudp.h>
@@ -18,7 +19,10 @@
 #include "sdram.h"
 #include "boot.h"
 
+void* __gxx_personality_v0 = NULL; // https://stackoverflow.com/a/329195
+
 /* General address space functions */
+
 
 #define NUMBER_OF_BYTES_ON_A_LINE 16
 static void dump_bytes(unsigned int *ptr, int count, unsigned long addr)
@@ -371,6 +375,7 @@ int main(int i, char **c)
 	irq_setmask(0);
 	irq_setie(1);
 	uart_init();
+    time_init();
 
 	printf("\n");
 	printf("\e[1m        __   _ __      _  __\e[0m\n");

@@ -23,8 +23,21 @@ void microudp_service(void);
 void eth_init(void);
 void eth_mode(void);
 
+///////////////////////////////////////////////////////////////////////////////
 #ifdef __cplusplus
 } //extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////
+struct ScopedUdpCallback {
+    inline ScopedUdpCallback( udp_callback cb ) noexcept
+        : _callback(cb) {
+            microudp_set_callback(_callback);
+        }
+    inline ~ScopedUdpCallback() noexcept {
+        microudp_set_callback(nullptr);
+    }
+    udp_callback _callback;
+};
+///////////////////////////////////////////////////////////////////////////////
+#endif // __cplusplus
 
 #endif /* __MICROUDP_H */

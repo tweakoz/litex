@@ -10,8 +10,8 @@
 // constants
 /////////////////////////////////////////////////////////
 
-static const uint16_t PORT_IN = 7642;  // Local TFTP client port (arbitrary)
-static const int BLOCK_SIZE = 512;     // block size in bytes
+static constexpr uint16_t PORT_IN = 7642;  // Local TFTP client port (arbitrary)
+static constexpr int BLOCK_SIZE = 512;     // block size in bytes
 
 /////////////////////////////////////////////////////////
 
@@ -124,7 +124,7 @@ static void rx_callback( uint32_t src_ip,
                     dst_buffer[offset+i] = datau8[i+4];
                 total_length += length;
                 //////////////////////////
-                printf("block<%d> offset<%zu> gotlen<%zu> totlen<%zu>\n", block, offset, length, total_length );
+                //printf("block<%d> offset<%zu> gotlen<%zu> totlen<%zu>\n", block, offset, length, total_length );
                 //////////////////////////
                 // the following is not enough to determine if done
                 //   what happens if the file's size is an integer multiple of BLOCK_SIZE ??
@@ -165,7 +165,7 @@ int tftp_get( uint32_t ip,
     if(!microudp_arp_resolve(ip))
         return -1;
 
-    microudp_set_callback(rx_callback);
+    ScopedUdpCallback callback(rx_callback);
 
     dst_buffer = outbuffer;
 
@@ -184,7 +184,6 @@ int tftp_get( uint32_t ip,
         if((total_length > 0) or transfer_finished) break;
         tries--;
         if(tries == 0) {
-            microudp_set_callback(NULL);
             return -1;
         }
     }
@@ -197,13 +196,10 @@ int tftp_get( uint32_t ip,
             length_before = total_length;
         }
         if(i-- == 0) {
-            microudp_set_callback(NULL);
             return -1;
         }
         microudp_service();
     }
-
-    microudp_set_callback(NULL);
 
     return int(total_length);
 }
@@ -221,7 +217,7 @@ int tftp_put( uint32_t ip,
     if(!microudp_arp_resolve(ip))
         return -1;
 
-    microudp_set_callback(rx_callback);
+    ScopedUdpCallback callback(rx_callback);
 
     packet_data = microudp_get_tx_buffer();
 
@@ -229,54 +225,65 @@ int tftp_put( uint32_t ip,
     transfer_finished = false;
     int tries = 5;
     int block = 0;
-    while(1) {
+    bool wait = true;
+    while(wait) {
         packet_data = microudp_get_tx_buffer();
         uint32_t len = format_request(packet_data, TFTP_WRQ, filename);
         microudp_send(PORT_IN, server_port, len);
         for(int i=0;i<2000000;i++) {
             last_ack = -1;
             microudp_service();
-            if(last_ack == block)
-                goto send_data;
+
+            if(last_ack == block){
+                wait=false;
+                continue;
+            }
+
             if(transfer_finished)
-                goto fail;
+                return -1;
         }
         tries--;
         if(tries == 0)
-            goto fail;
+            return -1;
     }
 
-send_data:
-    do {
+    bool outer_done = false;
+    while(false==outer_done){
+
         block++;
+
         uint32_t send = (sent+BLOCK_SIZE > size)
                       ? size-sent
                       : BLOCK_SIZE;
         tries = 5;
-        while(1) {
+
+        bool inner_done = false;
+        while(false==inner_done) {
             packet_data = microudp_get_tx_buffer();
             uint32_t len = format_data(packet_data, block, buffer, send);
             microudp_send(PORT_IN, data_port, len);
             for(int i=0;i<12000000;i++) {
                 microudp_service();
+
                 if(transfer_finished)
-                    goto fail;
-                if(last_ack == block)
-                    goto next;
+                    return -1;
+
+                if(last_ack == block){
+                    inner_done = true;
+                    continue;
+                }
+
             }
             if (!--tries)
-                goto fail;
+                return -1;
         }
-next:
+
         sent += send;
         buffer += send;
-    } while (send == BLOCK_SIZE);
 
-    microudp_set_callback(NULL);
+        outer_done = (send != BLOCK_SIZE);
+
+    }
 
     return sent;
-
-fail:
-    microudp_set_callback(NULL);
-    return -1;
 }

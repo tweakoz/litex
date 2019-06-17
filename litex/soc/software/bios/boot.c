@@ -10,6 +10,7 @@
 #include <generated/mem.h>
 #include <generated/csr.h>
 #include <base/stdlib.h>
+#include <base/time.h>
 
 #ifdef CSR_ETHMAC_BASE
 #include <net/microudp.h>
@@ -341,6 +342,9 @@ void netboot(void)
 						tl += _tokenize(manifest_string+tl,tok_addr._buffer,kmaxtoklen);
 						uint32_t addr=strtoul(tok_addr._buffer,0,0);
 						printf( "got boot command addr<%s:%08x>\n", tok_addr._buffer,addr );
+                        delayms(1000);
+                        uart_sync();
+                        //fflush(stdout);
 						boot(0, 0, 0, addr);
 					}
 					else if(0==strcmp("end",tok_command._buffer)){
