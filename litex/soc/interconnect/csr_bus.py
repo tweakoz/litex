@@ -189,17 +189,17 @@ class CSRBank(csr.GenericBank):
             c.csr_subaddr = Signal(self.decode_bits,name=c.name + "_subaddr")
             print("csr<%s> w<%d> i<%d>"%(c.name,c.size,i))
 
-            #######################
-            # sanity check bus width
-            #######################
-
-            assert(c.size<=bus.data_width)
-
             self.comb += [
                 c.csr_subaddr.eq( i ),
                 c.csr_adrmatch.eq( self.bus.adr[:self.decode_bits] == i ),
                 c.csr_selected.eq( bank_selected & c.csr_adrmatch )
             ]
+
+            #######################
+            # sanity check bus width
+            #######################
+
+            assert(c.size<=bus.data_width)
 
             ###################################
             # BUS->CSR (cpu write)
