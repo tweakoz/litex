@@ -67,6 +67,7 @@ class WishboneStreamingBridge(Module):
         ]
 
         fsm = ResetInserter()(FSM(reset_state="IDLE"))
+        print("clk_freq<%g> clk_freq//10<%g>"%(clk_freq,clk_freq//10))
         timer = WaitTimer(clk_freq//10)
         self.submodules += fsm, timer
         self.comb += [

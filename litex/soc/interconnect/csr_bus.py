@@ -35,7 +35,8 @@ class Interface(Record):
     def __init__(self, data_width=8, address_width=14):
         Record.__init__(self, set_layout_parameters(_layout,
             data_width=data_width, address_width=address_width))
-
+        self.data_width = data_width
+        print("Interface() dataw<%d> addrw<%d>"%(data_width,address_width))
     @classmethod
     def like(self, other):
         return Interface(len(other.dat_w),
@@ -158,21 +159,70 @@ class CSRBank(csr.GenericBank):
 
         csr.GenericBank.__init__(self, description, len(self.bus.dat_w))
 
-        sel = Signal()
-        self.comb += sel.eq(self.bus.adr[9:] == address)
+        print("CSRBank<%s> @ addr<%08x> ldw<%d> decode_bits<%d>"%(self,address,len(self.bus.dat_w),self.decode_bits))
+
+        #####################################
+        # is this bank selected ?
+        #####################################
+
+        bank_selected = Signal()
+        bank_subaddr = Signal(32-9)
+        bank_cursub = Signal(self.decode_bits)
+        bank_busaddr = Signal(32)
+        bank_address = Signal(32)
+
+        self.comb += bank_selected.eq(self.bus.adr[9:] == address)
+        self.comb += bank_subaddr.eq(self.bus.adr[9:])
+        self.comb += bank_cursub.eq( self.bus.adr[:self.decode_bits] )
+        self.comb += bank_busaddr.eq(self.bus.adr[0:13]<<2)
+        self.comb += bank_address.eq(address<<11)
+
+        #####################################
 
         for i, c in enumerate(self.simple_csrs):
+
+            ###################################
+            # CSR select
+            ###################################
+            c.csr_selected = Signal(name=c.name + "_select")
+            c.csr_adrmatch = Signal(name=c.name + "_decodematch")
+            c.csr_subaddr = Signal(self.decode_bits,name=c.name + "_subaddr")
+            print("csr<%s> w<%d> i<%d>"%(c.name,c.size,i))
+
+            #######################
+            # sanity check bus width
+            #######################
+
+            assert(c.size<=bus.data_width)
+
             self.comb += [
-                c.r.eq(self.bus.dat_w[:c.size]),
-                c.re.eq(sel & \
-                    self.bus.we & \
-                    (self.bus.adr[:self.decode_bits] == i))
+                c.csr_subaddr.eq( i ),
+                c.csr_adrmatch.eq( self.bus.adr[:self.decode_bits] == i ),
+                c.csr_selected.eq( bank_selected & c.csr_adrmatch )
             ]
 
+            ###################################
+            # BUS->CSR (cpu write)
+            ###################################
+
+            self.comb += [
+
+                # bus.data -> c.r
+
+                c.r.eq(self.bus.dat_w[:c.size]),
+
+                # notify CSR that write occured
+
+                c.re.eq(c.csr_selected & self.bus.we)
+            ]
+
+        ###################################
+        # CSR->BUS (cpu read)
+        ###################################
         brcases = dict((i, self.bus.dat_r.eq(c.w)) for i, c in enumerate(self.simple_csrs))
         self.sync += [
             self.bus.dat_r.eq(0),
-            If(sel, Case(self.bus.adr[:self.decode_bits], brcases))
+            If(bank_selected, Case(self.bus.adr[:self.decode_bits], brcases))
         ]
 
 
@@ -192,6 +242,7 @@ class CSRBankArray(Module):
         self.banks = []
         self.srams = []
         self.constants = []
+        print("source<%s>"%self.source)
         for name, obj in xdir(self.source, True):
             if hasattr(obj, "get_csrs"):
                 csrs = obj.get_csrs()
@@ -207,12 +258,15 @@ class CSRBankArray(Module):
                     mapaddr = self.address_map(name, memory)
                     if mapaddr is None:
                         continue
+                    print("sram: sram_bus")
+                    print("mapaddr<%d>"%mapaddr)
                     sram_bus = Interface(*ifargs, **ifkwargs)
                     mmap = SRAM(memory, mapaddr, read_only=read_only,
                                 bus=sram_bus)
                     self.submodules += mmap
                     csrs += mmap.get_csrs()
                     self.srams.append((name, memory, mapaddr, mmap))
+                    print("")
             if hasattr(obj, "get_constants"):
                 for constant in obj.get_constants():
                     self.constants.append((name, constant))
@@ -220,10 +274,14 @@ class CSRBankArray(Module):
                 mapaddr = self.address_map(name, None)
                 if mapaddr is None:
                     continue
+                print("csrbank: name<%s>"%name)
+                print("mapaddr<%d>"%mapaddr)
                 bank_bus = Interface(*ifargs, **ifkwargs)
                 rmap = CSRBank(csrs, mapaddr, bus=bank_bus)
                 self.submodules += rmap
                 self.banks.append((name, csrs, mapaddr, rmap))
+                print("")
+        #assert(False)
 
     def get_rmaps(self):
         return [rmap for name, csrs, mapaddr, rmap in self.banks]

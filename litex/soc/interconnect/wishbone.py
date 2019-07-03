@@ -680,6 +680,7 @@ class CSRBank(csr.GenericBank):
         self.bus = bus
 
         ###
+        assert(False)
 
         csr.GenericBank.__init__(self, description, len(self.bus.dat_w))
 

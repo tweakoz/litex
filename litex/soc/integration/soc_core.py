@@ -495,9 +495,11 @@ class SoCCore(Module):
                 self.comb += self.ctrl.bus_error.eq(self.wishbonecon.timeout.error)
 
         # Collect and create CSRs
+        print("addrw<%d>"%(self.csr_address_width))
         self.submodules.csrbankarray = csr_bus.CSRBankArray(self,
             self.get_csr_dev_address,
-            data_width=self.csr_data_width, address_width=self.csr_address_width)
+            data_width=self.csr_data_width,
+            address_width=self.csr_address_width)
 
         # Add CSRs interconnect
         self.submodules.csrcon = csr_bus.InterconnectShared(
