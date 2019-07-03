@@ -10,7 +10,7 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 # name,  (url, recursive clone, develop)
 repos = [
     ("migen",      ("http://github.com/m-labs/",        True,  True)),
-    ("litex",      ("http://github.com/enjoy-digital/", True,  True)),
+    ("litex",      ("http://github.com/tweakoz/",       True,  True)),
     ("liteeth",    ("http://github.com/enjoy-digital/", False, True)),
     ("litedram",   ("http://github.com/enjoy-digital/", False, True)),
     ("litepcie",   ("http://github.com/enjoy-digital/", False, True)),
